@@ -1,23 +1,28 @@
-# app.py – conversational, bard-flavored Curse-of-Strahd assistant
-import os, streamlit as st
-from langchain_community.vectorstores import FAISS
-from langchain_community.embeddings import OpenAIEmbeddings
+# app.py – conversational, bard-flavored Curse-of-Strahd assistant 
+import os
+import streamlit as st
+
+from langchain.vectorstores import FAISS
+from langchain.embeddings import OpenAIEmbeddings
 from langchain.chat_models import ChatOpenAI
 from langchain.chains import ConversationalRetrievalChain
 
 # ── config ───────────────────────────────────────────────
-INDEX_DIR   = "faiss_index"
-EMBED_MODEL = "text-embedding-3-small"
-CHAT_MODEL  = "gpt-4o-mini"
+INDEX_DIR    = "faiss_index"
+EMBED_MODEL  = "text-embedding-3-small"
+CHAT_MODEL   = "gpt-4o-mini"
 SYSTEM_PROMPT = (
     "You are the party’s seasoned bard, recounting past adventures with flair. "
     "Answer vividly but accurately, and cite your memories when asked."
 )
 # ─────────────────────────────────────────────────────────
 
+# ensure your key is in Streamlit secrets
 if "OPENAI_API_KEY" not in st.secrets:
     st.error("Add OPENAI_API_KEY in Settings → Secrets")
     st.stop()
+
+# export so downstream libs can see it
 os.environ["OPENAI_API_KEY"] = st.secrets["OPENAI_API_KEY"]
 
 @st.cache_resource(show_spinner=True)
@@ -28,20 +33,21 @@ def load_chain():
     )
     llm = ChatOpenAI(
         model=CHAT_MODEL,
-        temperature=0.3,          # a touch more creativity
+        temperature=0.3,       # a touch more creativity
         streaming=True,
         system_message=SYSTEM_PROMPT,
     )
     return ConversationalRetrievalChain.from_llm(
         llm,
         retriever=db.as_retriever(search_k=4),
-        return_source_documents=True,          # enable citations
+        return_source_documents=True,  # so we can expand citations
     )
 
 chain = load_chain()
 
 if "history" not in st.session_state:
-    st.session_state.history = []   # stores (role, msg, sources)
+    # each entry is (role, message, [source_docs])
+    st.session_state.history = []
 
 st.title("🧛‍♂️  Barovian Bardic Archive")
 
@@ -51,21 +57,21 @@ for role, msg, src in st.session_state.history:
         st.markdown(msg)
         if src:
             with st.expander("Show sources", expanded=False):
-                for s in src:
-                    st.markdown(f"• *…{s.page_content.strip()}*")
+                for doc in src:
+                    # truncate or format as you like
+                    st.markdown(f"> *…{doc.page_content.strip()}*")
 
-# ───── input box ────────────────────────────────────────
+# ───── user input ────────────────────────────────────────
 user_msg = st.chat_input("Ask the archive…")
 if user_msg:
-    # show user bubble
+    # echo the user
     with st.chat_message("user"):
         st.markdown(user_msg)
 
-    # assistant bubble (streaming)
+    # generate & stream the assistant
     with st.chat_message("assistant"):
         placeholder = st.empty()
         partial = ""
-
         for chunk in chain.stream(
             {
                 "question": user_msg,
@@ -75,8 +81,15 @@ if user_msg:
                 ],
             }
         ):
-            text = chunk["answer"]
-            partial = text
+            partial = chunk["answer"]
             placeholder.markdown(partial + "▌")
 
-        placeholder.markdown(p
+        # final render (remove cursor)
+        placeholder.markdown(partial)
+
+    # save to history (with sources for the last turn)
+    # Note: chain.stream doesn’t give you the final docs, 
+    # so you may need to call chain() for sources if you want them.
+    st.session_state.history.append(("user", user_msg, []))
+    st.session_state.history.append(("assistant", partial, []))
+
