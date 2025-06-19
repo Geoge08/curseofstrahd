@@ -74,29 +74,23 @@ for role, msg, src in st.session_state.history:
 # ───── user input ─────────────────────────────────────────
 user_msg = st.chat_input("Ask the archive…")
 if user_msg:
-    # echo the user
     with st.chat_message("user"):
         st.markdown(user_msg)
 
-    # ───── Assistant (synchronous) ───────────────────────────────
+    history = [(u, a) for u, a, _ in st.session_state.history]
+
     with st.chat_message("assistant"):
-        # call the chain synchronously
-        result = chain({
-            "question": user_msg,
-            "chat_history": [
-                (h, a) for h, a, _ in st.session_state.history
-                if h == "user"
-            ],
-        })
-        answer = result["answer"]
+        result  = chain(
+            question=user_msg,
+            chat_history=history
+        )
+        answer  = result["answer"]
         sources = result.get("source_documents", [])
 
-        # display the answer
         st.markdown(answer)
 
-    # ───── save into chat history (with citations!) ───────────────
-    st.session_state.history.append(("user",       user_msg, []))
-    st.session_state.history.append(("assistant", answer, sources))
+    st.session_state.history.append(("user",      user_msg, []))
+    st.session_state.history.append(("assistant", answer,  sources))
 
 
 
