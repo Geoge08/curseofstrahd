@@ -7,7 +7,7 @@ from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.embeddings import OpenAIEmbeddings
 from langchain.vectorstores import FAISS
 
-# 1️⃣ point at your transcripts
+# 1️⃣ point at your transcripts folder
 TRANSCRIPTS_DIR = Path("transcripts")
 
 # 2️⃣ load each .txt as a Document
@@ -17,10 +17,7 @@ for txt in sorted(TRANSCRIPTS_DIR.glob("Session_*_named.txt")):
     docs.extend(loader.load())
 
 # 3️⃣ split them into chunks
-splitter = RecursiveCharacterTextSplitter(
-    chunk_size=1000,
-    chunk_overlap=200
-)
+splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
 chunks = splitter.split_documents(docs)
 
 # 4️⃣ embed & build FAISS
