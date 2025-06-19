@@ -78,27 +78,25 @@ if user_msg:
     with st.chat_message("user"):
         st.markdown(user_msg)
 
-    # generate & stream the assistant
+    # ───── Assistant (synchronous) ───────────────────────────────
     with st.chat_message("assistant"):
-        placeholder = st.empty()
-        partial = ""
-        for chunk in chain.stream(
-            {
-                "question": user_msg,
-                "chat_history": [
-                    (h, a) for h, a, _ in st.session_state.history
-                    if h == "user"
-                ],
-            }
-        ):
-            partial = chunk["answer"]
-            placeholder.markdown(partial + "▌")
+        # call the chain synchronously
+        result = chain({
+            "question": user_msg,
+            "chat_history": [
+                (h, a) for h, a, _ in st.session_state.history
+                if h == "user"
+            ],
+        })
+        answer = result["answer"]
+        sources = result.get("source_documents", [])
 
-        # final render (remove cursor)
-        placeholder.markdown(partial)
+        # display the answer
+        st.markdown(answer)
 
-    # save to history (no sources on the user turn)
-    st.session_state.history.append(("user", user_msg, []))
-    st.session_state.history.append(("assistant", partial, []))
+    # ───── save into chat history (with citations!) ───────────────
+    st.session_state.history.append(("user",       user_msg, []))
+    st.session_state.history.append(("assistant", answer, sources))
+
 
 
