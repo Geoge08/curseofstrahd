@@ -24,8 +24,6 @@ st.set_page_config(page_title="Barovian Bardic Archive")
 if "OPENAI_API_KEY" not in st.secrets:
     st.error("Add OPENAI_API_KEY in Settings → Secrets")
     st.stop()
-
-# export so downstream libs can see it
 os.environ["OPENAI_API_KEY"] = st.secrets["OPENAI_API_KEY"]
 
 @st.cache_resource(show_spinner=True)
@@ -36,71 +34,68 @@ def load_chain():
     )
     llm = ChatOpenAI(
         model=CHAT_MODEL,
-        temperature=0.3,       # a touch more creativity
+        temperature=0.3,
         streaming=True,
         system_message=SYSTEM_PROMPT,
     )
     return ConversationalRetrievalChain.from_llm(
         llm,
         retriever=db.as_retriever(search_k=4),
-        return_source_documents=True,  # so we can expand citations
+        return_source_documents=True,
     )
 
 chain = load_chain()
 
 if "history" not in st.session_state:
-    # each entry is (role, message, [source_docs])
-    st.session_state.history = []
+    st.session_state.history = []  # list of (role, msg, [docs])
 
-# ──────────────────────────────────────────────────────────
 st.title("🧛‍♂️  Barovian Bardic Archive")
 
-# ── Character Introductions block ─────────────────────────
+# Character Introductions
 characters_path = Path("docs/CHARACTERS.md")
 if characters_path.exists():
     st.markdown("---")
     st.markdown("## Character Introductions")
     st.markdown(characters_path.read_text())
 
-# ───── display chat so far ────────────────────────────────
-for role, msg, src in st.session_state.history:
+# Render chat history
+for role, msg, docs in st.session_state.history:
     with st.chat_message(role):
         st.markdown(msg)
-        if src:
-            with st.expander("Show sources", expanded=False):
-                for doc in src:
-                    st.markdown(f"> *…{doc.page_content.strip()}*")
+        if docs:
+            with st.expander("Show sources"):
+                for d in docs:
+                    st.markdown(f"> *…{d.page_content.strip()}*")
 
-# ───── user input ─────────────────────────────────────────
+# User input
 user_msg = st.chat_input("Ask the archive…")
 if user_msg:
-    # echo user
+    # Echo user
     with st.chat_message("user"):
         st.markdown(user_msg)
 
-    # rebuild simple (user, assistant) history
+    # Build simple past history for the chain
     history = [(u, a) for u, a, _ in st.session_state.history]
 
-    # assistant turn
+    # Assistant response
     with st.chat_message("assistant"):
-        # wrap to show the real error if something goes wrong
         try:
-            result = chain(
-                question=user_msg,
-                chat_history=history,
-            )
+            inputs = {
+                "question":     user_msg,
+                "chat_history": history,
+            }
+            result = chain(inputs)
         except Exception as e:
             st.error(f"⚠️ Chain error: {type(e).__name__}: {e}")
             import traceback
             st.text(traceback.format_exc())
             st.stop()
 
-        # chain succeeded
-        answer = result["answer"]
+        answer  = result["answer"]
         sources = result.get("source_documents", [])
-
         st.markdown(answer)
 
-    # save both turns into history
+    # Save new turns
     st.session_state.history.append(("user",      user_msg, []))
     st.session_state.history.append(("assistant", answer,  sources))
+
