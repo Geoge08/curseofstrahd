@@ -3,9 +3,6 @@ import os
 from pathlib import Path
 
 import streamlit as st
-
-st.write("Secrets loaded:", "OPENAI_API_KEY" in st.secrets)
-
 from langchain.vectorstores import FAISS
 from langchain.embeddings import OpenAIEmbeddings
 from langchain.chat_models import ChatOpenAI
@@ -77,20 +74,20 @@ for role, msg, src in st.session_state.history:
 # ───── user input ─────────────────────────────────────────
 user_msg = st.chat_input("Ask the archive…")
 if user_msg:
-    # echo user
+    # echo the user
     with st.chat_message("user"):
         st.markdown(user_msg)
 
-    # rebuild simple (user,assistant) history
+    # rebuild simple (user, assistant) history
     history = [(u, a) for u, a, _ in st.session_state.history]
 
     # assistant turn
     with st.chat_message("assistant"):
-        inputs = {
-            "question":     user_msg,
-            "chat_history": history,
-        }
-        result  = chain(inputs)
+        # ⚡ Option A: pass each param by name
+        result = chain(
+            question=user_msg,
+            chat_history=history,
+        )
         answer  = result["answer"]
         sources = result.get("source_documents", [])
 
