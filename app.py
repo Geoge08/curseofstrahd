@@ -1,3 +1,5 @@
+st.write("Secrets loaded:", "OPENAI_API_KEY" in st.secrets)
+
 # app.py – conversational, bard-flavored Curse-of-Strahd assistant 
 import os
 from pathlib import Path
