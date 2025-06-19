@@ -1,7 +1,8 @@
 # app.py – conversational, bard-flavored Curse-of-Strahd assistant 
 import os
-import streamlit as st
+from pathlib import Path
 
+import streamlit as st
 from langchain.vectorstores import FAISS
 from langchain.embeddings import OpenAIEmbeddings
 from langchain.chat_models import ChatOpenAI
@@ -16,6 +17,8 @@ SYSTEM_PROMPT = (
     "Answer vividly but accurately, and cite your memories when asked."
 )
 # ─────────────────────────────────────────────────────────
+
+st.set_page_config(page_title="Barovian Bardic Archive")
 
 # ensure your key is in Streamlit secrets
 if "OPENAI_API_KEY" not in st.secrets:
@@ -49,19 +52,26 @@ if "history" not in st.session_state:
     # each entry is (role, message, [source_docs])
     st.session_state.history = []
 
+# ──────────────────────────────────────────────────────────
 st.title("🧛‍♂️  Barovian Bardic Archive")
 
-# ───── display chat so far ──────────────────────────────
+# ── Character Introductions block ─────────────────────────
+characters_path = Path("docs/CHARACTERS.md")
+if characters_path.exists():
+    st.markdown("---")
+    st.markdown("## Character Introductions")
+    st.markdown(characters_path.read_text())
+
+# ───── display chat so far ────────────────────────────────
 for role, msg, src in st.session_state.history:
     with st.chat_message(role):
         st.markdown(msg)
         if src:
             with st.expander("Show sources", expanded=False):
                 for doc in src:
-                    # truncate or format as you like
                     st.markdown(f"> *…{doc.page_content.strip()}*")
 
-# ───── user input ────────────────────────────────────────
+# ───── user input ─────────────────────────────────────────
 user_msg = st.chat_input("Ask the archive…")
 if user_msg:
     # echo the user
@@ -87,9 +97,8 @@ if user_msg:
         # final render (remove cursor)
         placeholder.markdown(partial)
 
-    # save to history (with sources for the last turn)
-    # Note: chain.stream doesn’t give you the final docs, 
-    # so you may need to call chain() for sources if you want them.
+    # save to history (no sources on the user turn)
     st.session_state.history.append(("user", user_msg, []))
     st.session_state.history.append(("assistant", partial, []))
+
 
