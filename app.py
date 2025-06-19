@@ -1,101 +1,94 @@
-# app.py – conversational, bard-flavored Curse-of-Strahd assistant 
+# app.py — minimal Streamlit + FAISS + OpenAI retrieval assistant
 import os
 from pathlib import Path
 
 import streamlit as st
-from langchain.vectorstores import FAISS
-from langchain.embeddings import OpenAIEmbeddings
-from langchain.chat_models import ChatOpenAI
-from langchain.chains import ConversationalRetrievalChain
+import faiss
+import pickle
+from openai import OpenAI
+from openai.error import OpenAIError
 
-# ── config ───────────────────────────────────────────────
+# ── CONFIG ────────────────────────────────────────────────
 INDEX_DIR    = "faiss_index"
-EMBED_MODEL  = "text-embedding-3-small"
-CHAT_MODEL   = "gpt-4o-mini"
+TRANSCRIPTS  = "transcripts"
 SYSTEM_PROMPT = (
     "You are the party’s seasoned bard, recounting past adventures with flair. "
     "Answer vividly but accurately, and cite your memories when asked."
 )
-# ─────────────────────────────────────────────────────────
+# ──────────────────────────────────────────────────────────
 
 st.set_page_config(page_title="Barovian Bardic Archive")
 
-# ensure your key is in Streamlit secrets
+# 1️⃣ Load your OpenAI key from Streamlit secrets
 if "OPENAI_API_KEY" not in st.secrets:
     st.error("Add OPENAI_API_KEY in Settings → Secrets")
     st.stop()
-os.environ["OPENAI_API_KEY"] = st.secrets["OPENAI_API_KEY"]
+API_KEY = st.secrets["OPENAI_API_KEY"]
 
-@st.cache_resource(show_spinner=True)
-def load_chain():
-    embeddings = OpenAIEmbeddings(model=EMBED_MODEL)
-    db = FAISS.load_local(
-        INDEX_DIR, embeddings, allow_dangerous_deserialization=True
-    )
-    llm = ChatOpenAI(
-        model=CHAT_MODEL,
-        temperature=0.3,
-        streaming=True,
-        system_message=SYSTEM_PROMPT,
-    )
-    return ConversationalRetrievalChain.from_llm(
-        llm,
-        retriever=db.as_retriever(search_k=4),
-        return_source_documents=True,
-    )
+# 2️⃣ Load FAISS index + metadata
+@st.cache_resource
+def load_index():
+    # load index
+    index = faiss.read_index(f"{INDEX_DIR}/index.faiss")
+    # load id→ text mapping
+    with open(f"{INDEX_DIR}/index.pkl", "rb") as f:
+        id2text = pickle.load(f)
+    return index, id2text
 
-chain = load_chain()
+index, id2text = load_index()
 
-if "history" not in st.session_state:
-    st.session_state.history = []  # list of (role, msg, [docs])
+st.title("🧛‍♂️ Barovian Bardic Archive")
 
-st.title("🧛‍♂️  Barovian Bardic Archive")
-
-# Character Introductions
-characters_path = Path("docs/CHARACTERS.md")
-if characters_path.exists():
+# Optional character block
+chars = Path("docs/CHARACTERS.md")
+if chars.exists():
     st.markdown("---")
     st.markdown("## Character Introductions")
-    st.markdown(characters_path.read_text())
+    st.markdown(chars.read_text())
 
-# Render chat history
-for role, msg, docs in st.session_state.history:
-    with st.chat_message(role):
-        st.markdown(msg)
-        if docs:
-            with st.expander("Show sources"):
-                for d in docs:
-                    st.markdown(f"> *…{d.page_content.strip()}*")
+# 3️⃣ Ask the user
+question = st.text_input("Ask the archive…")
 
-# User input
-user_msg = st.chat_input("Ask the archive…")
-if user_msg:
-    # Echo user
-    with st.chat_message("user"):
-        st.markdown(user_msg)
+if question:
+    # 4️⃣ VECTOR RETRIEVAL
+    # embed the question
+    client = OpenAI(api_key=API_KEY)
+    try:
+        emb_resp = client.embeddings.create(
+            model="text-embedding-3-small",
+            input=question
+        )
+    except OpenAIError as e:
+        st.error(f"Error embedding: {e}")
+        st.stop()
 
-    # Build simple past history for the chain
-    history = [(u, a) for u, a, _ in st.session_state.history]
+    q_vec = emb_resp["data"][0]["embedding"]
+    # FAISS search
+    D, I = index.search([q_vec], k=4)
+    contexts = "\n\n---\n\n".join(id2text[i] for i in I[0])
 
-    # Assistant response
-    with st.chat_message("assistant"):
-        try:
-            inputs = {
-                "question":     user_msg,
-                "chat_history": history,
-            }
-            result = chain(inputs)
-        except Exception as e:
-            st.error(f"⚠️ Chain error: {type(e).__name__}: {e}")
-            import traceback
-            st.text(traceback.format_exc())
-            st.stop()
+    # 5️⃣ BUILD THE CHAT PROMPT
+    system = SYSTEM_PROMPT
+    prompt = [
+        {"role":"system", "content": system},
+        {"role":"user",   "content":
+            "Here are the relevant excerpts from past sessions:\n\n"
+            f"{contexts}\n\n"
+            f"Question: {question}\n\n"
+            "Answer in bullet points, citing which excerpt you used."}
+    ]
 
-        answer  = result["answer"]
-        sources = result.get("source_documents", [])
-        st.markdown(answer)
+    # 6️⃣ CALL OpenAI CHAT COMPLETION
+    try:
+        chat = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=prompt,
+            temperature=0.3
+        )
+    except OpenAIError as e:
+        st.error(f"OpenAI API error: {e}")
+        st.stop()
 
-    # Save new turns
-    st.session_state.history.append(("user",      user_msg, []))
-    st.session_state.history.append(("assistant", answer,  sources))
+    answer = chat.choices[0].message.content
+    st.markdown(answer)
 
