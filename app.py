@@ -28,34 +28,37 @@ os.environ["OPENAI_API_KEY"] = st.secrets["OPENAI_API_KEY"]
 
 @st.cache_resource(show_spinner=True)
 def load_chain():
-    # load FAISS
+    # instantiate our embeddings & load the FAISS index
     embeddings = OpenAIEmbeddings(model=EMBED_MODEL)
     db = FAISS.load_local(
-        INDEX_DIR, embeddings, allow_dangerous_deserialization=True
+        INDEX_DIR,
+        embeddings,
+        allow_dangerous_deserialization=True
     )
-    # init LLM (no system_message here—LangChain will use the chain’s prompt template)
+
+    # build the LLM (we drop `system_message` here; the chain’s prompt will use SYSTEM_PROMPT)
     llm = ChatOpenAI(
         model_name=CHAT_MODEL,
         temperature=0.3,
         streaming=True
     )
+
+    # assemble conversational‐retrieval chain
     return ConversationalRetrievalChain.from_llm(
         llm,
         retriever=db.as_retriever(search_k=4),
-        return_source_documents=True,
-        # if your LangChain version supports it you can still pass:
-        # system_prompt=SYSTEM_PROMPT
+        return_source_documents=True
     )
 
 chain = load_chain()
 
 # ── initialize chat history ──────────────────────────────
 if "history" not in st.session_state:
-    st.session_state.history = []  # list of (role, message, [docs])
+    st.session_state.history = []  # each entry: (role, text, [docs])
 
 st.title("🧛‍♂️ Barovian Bardic Archive")
 
-# ── Character sheet from docs/CHARACTERS.md ─────────────
+# ── show character sheet ─────────────────────────────────
 char_file = Path("docs/CHARACTERS.md")
 if char_file.exists():
     st.markdown("---")
@@ -78,7 +81,7 @@ if user_msg:
     with st.chat_message("user"):
         st.markdown(user_msg)
 
-    # build simple history for chain
+    # pass only (user, assistant) pairs to the chain
     history = [(u, a) for u, a, _ in st.session_state.history]
 
     # assistant responds
@@ -100,4 +103,5 @@ if user_msg:
     # append to history
     st.session_state.history.append(("user",      user_msg, []))
     st.session_state.history.append(("assistant", answer,  sources))
+
 
