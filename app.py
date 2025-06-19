@@ -74,21 +74,26 @@ for role, msg, src in st.session_state.history:
 # ───── user input ─────────────────────────────────────────
 user_msg = st.chat_input("Ask the archive…")
 if user_msg:
+    # echo user
     with st.chat_message("user"):
         st.markdown(user_msg)
 
+    # rebuild simple (user,assistant) history
     history = [(u, a) for u, a, _ in st.session_state.history]
 
+    # assistant turn
     with st.chat_message("assistant"):
-        result  = chain(
-            question=user_msg,
-            chat_history=history
-        )
+        inputs = {
+            "question":     user_msg,
+            "chat_history": history,
+        }
+        result  = chain(inputs)
         answer  = result["answer"]
         sources = result.get("source_documents", [])
 
         st.markdown(answer)
 
+    # save both turns
     st.session_state.history.append(("user",      user_msg, []))
     st.session_state.history.append(("assistant", answer,  sources))
 
