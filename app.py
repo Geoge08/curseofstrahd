@@ -1,30 +1,6 @@
-# ── app.py – conversational, bard-flavored Curse-of-Strahd assistant ──────────
-
-# ── 0️⃣ LOGGING BOILERPLATE: capture everything to streamlit.log ─────────────
-import logging, traceback, sys
-from pathlib import Path
-
-LOG_PATH = Path(__file__).parent / "streamlit.log"
-if LOG_PATH.exists():
-    LOG_PATH.unlink()
-
-logging.basicConfig(
-    filename=str(LOG_PATH),
-    filemode="a",
-    format="%(asctime)s %(levelname)s %(message)s",
-    level=logging.DEBUG,
-)
-
-def log_uncaught_exceptions(exc_type, exc_value, exc_tb):
-    logging.critical("Uncaught exception", exc_info=(exc_type, exc_value, exc_tb))
-
-sys.excepthook = log_uncaught_exceptions
-# ────────────────────────────────────────────────────────────────────────────
-
-
+# app.py – conversational, bard-flavored Curse-of-Strahd assistant 
 import os
 from pathlib import Path
-
 import streamlit as st
 from langchain.vectorstores import FAISS
 from langchain.embeddings import OpenAIEmbeddings
@@ -32,9 +8,9 @@ from langchain.chat_models import ChatOpenAI
 from langchain.chains import ConversationalRetrievalChain
 
 # ── config ───────────────────────────────────────────────
-INDEX_DIR    = "faiss_index"
-EMBED_MODEL  = "text-embedding-3-small"
-CHAT_MODEL   = "gpt-4o-mini"
+INDEX_DIR   = "faiss_index"
+EMBED_MODEL = "text-embedding-3-small"
+CHAT_MODEL  = "gpt-4o-mini"
 SYSTEM_PROMPT = (
     "You are the party’s seasoned bard, recounting past adventures with flair. "
     "Answer vividly but accurately, and cite your memories when asked."
@@ -43,77 +19,79 @@ SYSTEM_PROMPT = (
 
 st.set_page_config(page_title="Barovian Bardic Archive")
 
-# ensure your key is in Streamlit secrets
+# make sure your key is stored in Streamlit → Settings → Secrets
 if "OPENAI_API_KEY" not in st.secrets:
-    st.error("Add OPENAI_API_KEY in Settings → Secrets")
+    st.error("🔑 Please add your `OPENAI_API_KEY` under Settings → Secrets")
     st.stop()
 
-# export so downstream libs can see it
 os.environ["OPENAI_API_KEY"] = st.secrets["OPENAI_API_KEY"]
 
 @st.cache_resource(show_spinner=True)
 def load_chain():
-    logging.info("Loading FAISS index and LLM chain")
+    # load your FAISS index
     embeddings = OpenAIEmbeddings(model=EMBED_MODEL)
     db = FAISS.load_local(
         INDEX_DIR, embeddings, allow_dangerous_deserialization=True
     )
+    # create a ChatOpenAI model (note: no `system_message` here!)
     llm = ChatOpenAI(
-        model=CHAT_MODEL,
-        temperature=0.3,       # a touch more creativity
-        streaming=True,
-        system_message=SYSTEM_PROMPT,
+        model_name=CHAT_MODEL,
+        temperature=0.3,
+        streaming=True
     )
-    chain = ConversationalRetrievalChain.from_llm(
+    # build the conversational‐retrieval chain
+    return ConversationalRetrievalChain.from_llm(
         llm,
         retriever=db.as_retriever(search_k=4),
-        return_source_documents=True,  # so we can expand citations
+        return_source_documents=True,
+        # you can still pass your system prompt here if your LangChain version supports it:
+        # system_prompt=SYSTEM_PROMPT
     )
-    logging.info("Chain loaded successfully")
-    return chain
 
 chain = load_chain()
 
+# initialize chat history
 if "history" not in st.session_state:
-    st.session_state.history = []  # each entry is (role, message, [source_docs])
+    st.session_state.history = []  # each entry: (role, text, [docs])
 
-# ──────────────────────────────────────────────────────────
-st.title("🧛‍♂️  Barovian Bardic Archive")
+st.title("🧛‍♂️ Barovian Bardic Archive")
 
-# ── Character Introductions block ─────────────────────────
-characters_path = Path("docs/CHARACTERS.md")
-if characters_path.exists():
+# show your CHARACTER sheet from docs/CHARACTERS.md
+char_file = Path("docs/CHARACTERS.md")
+if char_file.exists():
     st.markdown("---")
     st.markdown("## Character Introductions")
-    st.markdown(characters_path.read_text())
+    st.markdown(char_file.read_text())
 
-# ───── display chat so far ────────────────────────────────
-for role, msg, src in st.session_state.history:
+# replay the conversation so far
+for role, text, docs in st.session_state.history:
     with st.chat_message(role):
-        st.markdown(msg)
-        if src:
-            with st.expander("Show sources", expanded=False):
-                for doc in src:
-                    st.markdown(f"> *…{doc.page_content.strip()}*")
+        st.markdown(text)
+        if docs:
+            with st.expander("Show sources"):
+                for d in docs:
+                    st.markdown(f"> *…{d.page_content.strip()}*")
 
-# ───── user input ─────────────────────────────────────────
+# user prompt
 user_msg = st.chat_input("Ask the archive…")
 if user_msg:
-    # echo user
+    # show user message
     with st.chat_message("user"):
         st.markdown(user_msg)
 
-    # rebuild simple (user, assistant) history
+    # build simple history for the chain
     history = [(u, a) for u, a, _ in st.session_state.history]
 
-    # assistant turn
+    # assistant response
     with st.chat_message("assistant"):
         try:
-            result = chain({"question": user_msg, "chat_history": history})
+            result = chain({
+                "question":      user_msg,
+                "chat_history":  history
+            })
         except Exception as e:
-            st.error(f"⚠️ Chain error: {type(e).__name__}: {e}")
-            st.text(traceback.format_exc())
-            logging.error("Chain invocation failed", exc_info=True)
+            st.error(f"❌ Chain error: {type(e).__name__}: {e}")
+            import traceback; st.text(traceback.format_exc())
             st.stop()
 
         answer  = result["answer"]
@@ -121,13 +99,7 @@ if user_msg:
 
         st.markdown(answer)
 
-    # save both turns
+    # append to our session history
     st.session_state.history.append(("user",      user_msg, []))
     st.session_state.history.append(("assistant", answer,  sources))
 
-
-# ── 〆 VIEW LOG in UI ───────────────────────────────────────────────
-if LOG_PATH.exists():
-    with st.expander("📄 View app log", expanded=False):
-        lines = LOG_PATH.read_text().splitlines()
-        st.text("\n".join(lines[-100:]))
