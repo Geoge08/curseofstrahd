@@ -2,9 +2,10 @@
 import os
 from pathlib import Path
 
+import streamlit as st
+
 st.write("Secrets loaded:", "OPENAI_API_KEY" in st.secrets)
 
-import streamlit as st
 from langchain.vectorstores import FAISS
 from langchain.embeddings import OpenAIEmbeddings
 from langchain.chat_models import ChatOpenAI
